@@ -13,6 +13,7 @@ Additionally, the neural network architecture has been modified to a smaller net
 https://arxiv.org/abs/1709.06560 and the batch norm layers have been removed to simplify the verification process.
 The final learned model is also saved so it can be analyzed afterwards using NNV.
 """
+import os
 import tensorflow as tf
 import numpy as np
 import gym
@@ -244,8 +245,6 @@ class OrnsteinUhlenbeckActionNoise:
 # ===========================
 #   Tensorflow Summary Ops
 # ===========================
-
-
 def build_summaries():
     episode_reward = tf.Variable(0.)
     tf.compat.v1.summary.scalar("Reward", episode_reward)
@@ -261,9 +260,35 @@ def build_summaries():
 # ===========================
 #   Agent Training
 # ===========================
+def evaluate(env, actor, episode_length):
+    # Reset the environment
+    s = env.reset()
+
+    ep_reward = 0
+
+    # Step through each step of the episode
+    done = 0
+    steps = episode_length
+    for i in range(episode_length):
+        a = actor.predict(np.reshape(s, (1, actor.s_dim)))
+        s2, r, terminal, info = env.step(a[0])
+
+        s = s2
+        ep_reward += r
+
+        if terminal:
+            done = 1
+            steps = i + 1
+            break
+
+    # Return the results
+    return steps, ep_reward, done
 
 
-def train(sess, env, args, actor, critic, actor_noise, reward_result):
+# ===========================
+#   Agent Training
+# ===========================
+def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
     # Set up summary Ops
     summary_ops, summary_vars = build_summaries()
 
@@ -286,7 +311,20 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
 
     paths = list()
 
-    for i in range(int(args['max_episodes'])):
+    # Extract the arguments that will be used repeatedly
+    episode_length = int(args['max_episode_len'])
+    max_episodes = int(args['max_episodes'])
+    num_evals = int(args['num_evals'])
+
+    # Evaluate initial performance
+    for j in range(num_evals):
+        steps, reward, done = evaluate(env, actor, episode_length)
+
+        # Log the evaluation run
+        with open(log_name, "a") as myfile:
+            myfile.write(str(0) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
+
+    for i in range(max_episodes):
 
         s = env.reset()
 
@@ -295,7 +333,7 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
 
         obs, action, rewards = [], [], []
 
-        for j in range(int(args['max_episode_len'])):
+        for j in range(episode_length):
 
             # Added exploration noise
             a = actor.predict(np.reshape(s, (1, actor.s_dim))) + actor_noise()
@@ -360,6 +398,14 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
                         "Reward": np.asarray(rewards)}
                 paths.append(path)
 
+                # Evaluate performance of trained model after the episode
+                for k in range(num_evals):
+                    steps, reward, done = evaluate(env, actor, episode_length)
+
+                    # Log the evaluation run
+                    with open(log_name, "a") as myfile:
+                        myfile.write(str(i+1) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
+
                 break
 
     restorer.save(sess, './final_model.chkp')
@@ -367,12 +413,20 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
     return [summary_ops, summary_vars, paths]
 
 
-def main(args, reward_result):
+def main(args, reward_result, log_path):
     with tf.Session() as sess:
         env = gym.make(args['env'])
         np.random.seed(int(args['random_seed']))
         tf.compat.v1.set_random_seed(int(args['random_seed']))
         env.seed(int(args['random_seed']))
+
+        # Create the log files
+        if not os.path.isdir(log_path):
+            os.mkdir(log_path)
+        log_save_name = log_path + '/episode_performance.csv'
+        f = open(log_save_name, "w+")
+        f.write("episode number, steps in evaluation, accumulated reward, done \n")
+        f.close()
 
         state_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
@@ -391,14 +445,17 @@ def main(args, reward_result):
 
         actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_dim))
 
-        [summary_ops, summary_vars, paths] = train(sess, env, args, actor, critic, actor_noise, reward_result)
+        [summary_ops, summary_vars, paths] = train(sess, env, args, actor, critic, actor_noise, reward_result,
+                                                   log_save_name)
 
-        # Pull the weights and biases from the actor
-        weights = [actor.out]
-
-        print(actor.out)
-
-        print(actor.scaled_out)
+        # Evaluate the final model 100 times to get a better idea of the final model's performance
+        f = open(args['log_path'] + '/final_eval.csv', "w+")
+        f.write("reward, steps, dones\n")
+        episode_length = int(args['max_episode_len'])
+        for k in range(100):
+            steps, reward, done = evaluate(env, actor, episode_length)
+            f.write(str(reward) + ', ' + str(steps) + ', ' + str(done) + '\n')
+        f.close()
 
         return [summary_ops, summary_vars, paths]
 
@@ -419,10 +476,12 @@ if __name__ == '__main__':
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1754)
     parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=600)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
+    parser.add_argument('--num-evals', help='number of evaluation runs after each episode', default=5)
     parser.add_argument('--render-env', help='render the gym env', action='store_false')
     parser.add_argument('--use-gym-monitor', help='record gym results', action='store_false')
     parser.add_argument('--monitor-dir', help='directory for storing gym results', default='./results2/gym_ddpg')
     parser.add_argument('--summary-dir', help='directory for storing tensorboard info', default='./results2/tf_ddpg')
+    parser.add_argument('--log-path', help='path to directory where a log will be recorded', default='.')
 
     parser.set_defaults(render_env=False)
     parser.set_defaults(use_gym_monitor=False)
@@ -432,7 +491,9 @@ if __name__ == '__main__':
     pp.pprint(args)
 
     reward_result = np.zeros(int(args['max_episodes']))
-    [summary_ops, summary_vars, paths] = main(args, reward_result)
+    [summary_ops, summary_vars, paths] = main(args, reward_result, args['log_path'])
+
+
 
     # savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',
     #         dict(data=paths, reward=reward_result))
