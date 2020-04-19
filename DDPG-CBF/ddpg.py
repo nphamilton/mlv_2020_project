@@ -21,6 +21,7 @@ import dynamics_gp
 import datetime
 from gym import spaces
 
+
 # ===========================
 #   Actor and Critic DNNs
 # ===========================
@@ -52,14 +53,14 @@ class ActorNetwork(object):
         self.target_inputs, self.target_out, self.target_scaled_out = self.create_actor_network()
 
         self.target_network_params = tf.trainable_variables()[
-            len(self.network_params):]
+                                     len(self.network_params):]
 
         # Op for periodically updating target network with online network
         # weights
         self.update_target_network_params = \
             [self.target_network_params[i].assign(tf.multiply(self.network_params[i], self.tau) +
                                                   tf.multiply(self.target_network_params[i], 1. - self.tau))
-                for i in range(len(self.target_network_params))]
+             for i in range(len(self.target_network_params))]
 
         # This gradient will be provided by the critic network
         self.action_gradient = tf.placeholder(tf.float32, [None, self.a_dim])
@@ -70,7 +71,7 @@ class ActorNetwork(object):
         self.actor_gradients = list(map(lambda x: tf.div(x, self.batch_size), self.unnormalized_actor_gradients))
 
         # Optimization Op
-        self.optimize = tf.train.AdamOptimizer(self.learning_rate).\
+        self.optimize = tf.train.AdamOptimizer(self.learning_rate). \
             apply_gradients(zip(self.actor_gradients, self.network_params))
 
         self.num_trainable_vars = len(
@@ -144,8 +145,8 @@ class CriticNetwork(object):
         # weights with regularization
         self.update_target_network_params = \
             [self.target_network_params[i].assign(tf.multiply(self.network_params[i], self.tau) \
-            + tf.multiply(self.target_network_params[i], 1. - self.tau))
-                for i in range(len(self.target_network_params))]
+                                                  + tf.multiply(self.target_network_params[i], 1. - self.tau))
+             for i in range(len(self.target_network_params))]
 
         # Network target (y_i)
         self.predicted_q_value = tf.placeholder(tf.float32, [None, 1])
@@ -211,6 +212,7 @@ class CriticNetwork(object):
     def update_target_network(self):
         self.sess.run(self.update_target_network_params)
 
+
 # Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py, which is
 # based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
 class OrnsteinUhlenbeckActionNoise:
@@ -224,7 +226,7 @@ class OrnsteinUhlenbeckActionNoise:
 
     def __call__(self):
         x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + \
-                self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
+            self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
         self.x_prev = x
         return x
 
@@ -233,6 +235,7 @@ class OrnsteinUhlenbeckActionNoise:
 
     def __repr__(self):
         return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
+
 
 # ===========================
 #   Tensorflow Summary Ops
@@ -249,12 +252,12 @@ def build_summaries():
 
     return summary_ops, summary_vars
 
+
 # ===========================
 #   Agent Training
 # ===========================
 
 def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
-
     # Set up summary Ops
     summary_ops, summary_vars = build_summaries()
 
@@ -272,11 +275,11 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
     # in other environments.
     # tflearn.is_training(True)
 
-    paths=list()
-    
+    paths = list()
+
     for i in range(int(args['max_episodes'])):
 
-        #Utilize GP from previous iteration while training current iteration
+        # Utilize GP from previous iteration while training current iteration
         if (agent.firstIter == 1):
             pass
         else:
@@ -286,7 +289,7 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
         for el in range(5):
 
             obs, action, rewards, action_bar, action_BAR = [], [], [], [], []
-            
+
             s = env.reset()
             # Ensure that starting position is in "safe" region
             while (env.unwrapped.state[0] > 0.8 or env.unwrapped.state[0] < -0.8):
@@ -297,45 +300,44 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
 
             for j in range(int(args['max_episode_len'])):
 
-                #env.render()   
-            
+                # env.render()
+
                 # Added exploration noise
-                #a = actor.predict(np.reshape(s, (1, 3))) + (1. / (1. + i))
+                # a = actor.predict(np.reshape(s, (1, 3))) + (1. / (1. + i))
                 a = actor.predict(np.reshape(s, (1, actor.s_dim))) + actor_noise()
 
-                #Incorporate barrier function
+                # Incorporate barrier function
                 action_rl = a[0]
 
-                #Utilize compensation barrier function
-                if (agent.firstIter == 1):
+                # Utilize compensation barrier function
+                if agent.firstIter == 1:
                     u_BAR_ = [0]
                 else:
                     u_BAR_ = agent.bar_comp.get_action(s)[0]
 
                 action_RL = action_rl + u_BAR_
-            
-                #Utilize safety barrier function
-                if (agent.firstIter == 1):
-                    [f,g,x,std] = dynamics_gp.get_GP_dynamics(agent, s, action_RL)
+
+                # Utilize safety barrier function
+                if agent.firstIter == 1:
+                    [f, g, x, std] = dynamics_gp.get_GP_dynamics(agent, s, action_RL)
                 else:
-                    [f,g,x,std] = dynamics_gp.get_GP_dynamics_prev(agent, s, action_RL)
+                    [f, g, x, std] = dynamics_gp.get_GP_dynamics_prev(agent, s, action_RL)
                 u_bar_ = cbf.control_barrier(agent, np.squeeze(s), action_RL, f, g, x, std)
                 action_ = action_RL + u_bar_
-            
-            
+
                 s2, r, terminal, info = env.step(action_)
 
                 replay_buffer.add(np.reshape(s, (actor.s_dim,)), np.reshape(a, (actor.a_dim,)), r,
                                   terminal, np.reshape(s2, (actor.s_dim,)))
 
-                #replay_buffer.add(np.reshape(s, (actor.s_dim,)), np.reshape(action_, (actor.a_dim,)), r,
+                # replay_buffer.add(np.reshape(s, (actor.s_dim,)), np.reshape(action_, (actor.a_dim,)), r,
                 #                  terminal, np.reshape(s2, (actor.s_dim,)))
-
 
                 # Keep adding experience to the memory until
                 # there are at least minibatch size samples
                 if replay_buffer.size() > int(args['minibatch_size']):
-                    s_batch, a_batch, r_batch, t_batch, s2_batch = replay_buffer.sample_batch(int(args['minibatch_size']))
+                    s_batch, a_batch, r_batch, t_batch, s2_batch = replay_buffer.sample_batch(
+                        int(args['minibatch_size']))
 
                     # Calculate targets
                     target_q = critic.predict_target(s2_batch, actor.predict_target(s2_batch))
@@ -348,7 +350,8 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
                             y_i.append(r_batch[k] + critic.gamma * target_q[k])
 
                     # Update the critic given the targets
-                    predicted_q_value, _ = critic.train(s_batch, a_batch, np.reshape(y_i, (int(args['minibatch_size']), 1)))
+                    predicted_q_value, _ = critic.train(s_batch, a_batch,
+                                                        np.reshape(y_i, (int(args['minibatch_size']), 1)))
 
                     ep_ave_max_q += np.amax(predicted_q_value)
 
@@ -369,23 +372,23 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
                 action_bar.append(u_bar_)
                 action_BAR.append(u_BAR_)
                 action.append(action_)
-            
+
                 if terminal:
+                    # writer.add_summary(summary_str, i)
+                    # writer.flush()
 
-                    #writer.add_summary(summary_str, i)
-                    #writer.flush()
-
-                    print('| Reward: {:d} | Episode: {:d} | Qmax: {:.4f}'.format(int(ep_reward), i, (ep_ave_max_q / float(j))))
+                    print('| Reward: {:d} | Episode: {:d} | Qmax: {:.4f}'.format(int(ep_reward), i,
+                                                                                 (ep_ave_max_q / float(j))))
                     reward_result[i] = ep_reward
-                    path = {"Observation":np.concatenate(obs).reshape((200,3)),
-                            "Action":np.concatenate(action),
-                            "Action_bar":np.concatenate(action_bar),
-                            "Action_BAR":np.concatenate(action_BAR),
-                            "Reward":np.asarray(rewards)}
+                    path = {"Observation": np.concatenate(obs).reshape((200, 3)),
+                            "Action": np.concatenate(action),
+                            "Action_bar": np.concatenate(action_bar),
+                            "Action_BAR": np.concatenate(action_BAR),
+                            "Reward": np.asarray(rewards)}
                     paths.append(path)
                     break
             if el <= 3:
-                dynamics_gp.update_GP_dynamics(agent,path)
+                dynamics_gp.update_GP_dynamics(agent, path)
 
         if (i <= 4):
             agent.bar_comp.get_training_rollouts(paths)
@@ -396,10 +399,9 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
 
     return [summary_ops, summary_vars, paths]
 
+
 def main(args, reward_result):
-
     with tf.Session() as sess:
-
         env = gym.make(args['env'])
         np.random.seed(int(args['random_seed']))
         tf.set_random_seed(int(args['random_seed']))
@@ -407,11 +409,12 @@ def main(args, reward_result):
 
         # Set environment parameters for pendulum
         env.unwrapped.max_torque = 15.
-        env.unwrapped.max_speed = 60.   
-        env.unwrapped.action_space = spaces.Box(low=-env.unwrapped.max_torque, high=env.unwrapped.max_torque, shape=(1,))
+        env.unwrapped.max_speed = 60.
+        env.unwrapped.action_space = spaces.Box(low=-env.unwrapped.max_torque, high=env.unwrapped.max_torque,
+                                                shape=(1,))
         high = np.array([1., 1., env.unwrapped.max_speed])
         env.unwrapped.observation_space = spaces.Box(low=-high, high=high)
-        
+
         state_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
         action_bound = env.action_space.high
@@ -426,7 +429,7 @@ def main(args, reward_result):
                                float(args['critic_lr']), float(args['tau']),
                                float(args['gamma']),
                                actor.get_num_trainable_vars())
-        
+
         actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_dim))
 
         agent = LEARNER(env)
@@ -434,28 +437,27 @@ def main(args, reward_result):
         dynamics_gp.build_GP_model(agent)
         agent.bar_comp = BARRIER(sess, 3, 1)
 
-        
         [summary_ops, summary_vars, paths] = train(sess, env, args, actor, critic, actor_noise, reward_result, agent)
 
-        
         return [summary_ops, summary_vars, paths]
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='provide arguments for DDPG agent')
-    
+
     # agent parameters
     parser.add_argument('--actor-lr', help='actor network learning rate', default=0.0001)
     parser.add_argument('--critic-lr', help='critic network learning rate', default=0.001)
     parser.add_argument('--gamma', help='discount factor for critic updates', default=0.99)
     parser.add_argument('--tau', help='soft target update parameter', default=0.001)
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
-    parser.add_argument('--minibatch-size', help='size of minibatch for minibatch-SGD', default=64) 
+    parser.add_argument('--minibatch-size', help='size of minibatch for minibatch-SGD', default=64)
 
     # run parameters
     parser.add_argument('--env', help='choose the gym env- tested on {Pendulum-v0}', default='Pendulum-v0')
-    parser.add_argument('--random-seed', help='random seed for repeatability', default=1234) 
-    parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=150) 
-    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200) 
+    parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
+    parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=150)
+    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
     parser.add_argument('--render-env', help='render the gym env', action='store_false')
     parser.add_argument('--use-gym-monitor', help='record gym results', action='store_false')
     parser.add_argument('--monitor-dir', help='directory for storing gym results', default='./results2/gym_ddpg')
@@ -463,13 +465,13 @@ if __name__ == '__main__':
 
     parser.set_defaults(render_env=False)
     parser.set_defaults(use_gym_monitor=False)
-    
+
     args = vars(parser.parse_args())
-    
+
     pp.pprint(args)
 
     reward_result = np.zeros(int(args['max_episodes']))
     [summary_ops, summary_vars, paths] = main(args, reward_result)
 
-    savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',dict(data=paths, reward=reward_result))
-
+    savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',
+            dict(data=paths, reward=reward_result))

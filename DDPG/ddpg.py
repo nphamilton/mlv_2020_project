@@ -1,13 +1,17 @@
 """ 
 Implementation of DDPG - Deep Deterministic Policy Gradient
 
-Algorithm and hyperparameter details can be found here: 
-    http://arxiv.org/pdf/1509.02971v2.pdf
+Algorithm and hyperparameter details can be found here: http://arxiv.org/pdf/1509.02971v2.pdf
 
-The algorithm is tested on the Pendulum-v0 OpenAI gym task 
-and developed with tflearn + Tensorflow
+The algorithm is tested on the Pendulum-v0 OpenAI gym task and developed with tflearn + Tensorflow
 
-Author: Patrick Emami
+Original Author: Patrick Emami
+Code copied from https://github.com/rcheng805/RL-CBF
+
+The majority of this code is still the same, however, I have made some modifications to add a different form of logging.
+Additionally, the neural network architecture has been modified to a smaller network reported on in
+https://arxiv.org/abs/1709.06560 and the batch norm layers have been removed to simplify the verification process.
+The final learned model is also saved so it can be analyzed afterwards using NNV.
 """
 import tensorflow as tf
 import numpy as np
@@ -21,6 +25,7 @@ import datetime
 
 from replay_buffer import ReplayBuffer
 
+
 # ===========================
 #   Actor and Critic DNNs
 # ===========================
@@ -33,7 +38,6 @@ class ActorNetwork(object):
     The output layer activation is a tanh to keep the action
     between -action_bound and action_bound
     """
-
     def __init__(self, sess, state_dim, action_dim, action_bound, learning_rate, tau, batch_size):
         self.sess = sess
         self.s_dim = state_dim
@@ -46,31 +50,31 @@ class ActorNetwork(object):
         # Actor Network
         self.inputs, self.out, self.scaled_out = self.create_actor_network()
 
-        self.network_params = tf.trainable_variables()
+        self.network_params = tf.compat.v1.trainable_variables()
 
         # Target Network
         self.target_inputs, self.target_out, self.target_scaled_out = self.create_actor_network()
 
-        self.target_network_params = tf.trainable_variables()[
-            len(self.network_params):]
+        self.target_network_params = tf.compat.v1.trainable_variables()[
+                                     len(self.network_params):]
 
         # Op for periodically updating target network with online network
         # weights
         self.update_target_network_params = \
             [self.target_network_params[i].assign(tf.multiply(self.network_params[i], self.tau) +
                                                   tf.multiply(self.target_network_params[i], 1. - self.tau))
-                for i in range(len(self.target_network_params))]
+             for i in range(len(self.target_network_params))]
 
         # This gradient will be provided by the critic network
-        self.action_gradient = tf.placeholder(tf.float32, [None, self.a_dim])
+        self.action_gradient = tf.compat.v1.placeholder(tf.float32, [None, self.a_dim])
 
         # Combine the gradients here
         self.unnormalized_actor_gradients = tf.gradients(
             self.scaled_out, self.network_params, -self.action_gradient)
-        self.actor_gradients = list(map(lambda x: tf.div(x, self.batch_size), self.unnormalized_actor_gradients))
+        self.actor_gradients = list(map(lambda x: tf.math.divide(x, self.batch_size), self.unnormalized_actor_gradients))
 
         # Optimization Op
-        self.optimize = tf.train.AdamOptimizer(self.learning_rate).\
+        self.optimize = tf.compat.v1.train.AdamOptimizer(self.learning_rate). \
             apply_gradients(zip(self.actor_gradients, self.network_params))
 
         self.num_trainable_vars = len(
@@ -78,10 +82,10 @@ class ActorNetwork(object):
 
     def create_actor_network(self):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
-        net = tflearn.fully_connected(inputs, 400)
+        net = tflearn.fully_connected(inputs, 64)
         # net = tflearn.layers.normalization.batch_normalization(net)
         net = tflearn.activations.relu(net)
-        net = tflearn.fully_connected(net, 300)
+        net = tflearn.fully_connected(net, 64)
         # net = tflearn.layers.normalization.batch_normalization(net)
         net = tflearn.activations.relu(net)
         # Final layer weights are init to Uniform[-3e-3, 3e-3]
@@ -121,7 +125,6 @@ class CriticNetwork(object):
     The action must be obtained from the output of the Actor network.
 
     """
-
     def __init__(self, sess, state_dim, action_dim, learning_rate, tau, gamma, num_actor_vars):
         self.sess = sess
         self.s_dim = state_dim
@@ -133,26 +136,26 @@ class CriticNetwork(object):
         # Create the critic network
         self.inputs, self.action, self.out = self.create_critic_network()
 
-        self.network_params = tf.trainable_variables()[num_actor_vars:]
+        self.network_params = tf.compat.v1.trainable_variables()[num_actor_vars:]
 
         # Target Network
         self.target_inputs, self.target_action, self.target_out = self.create_critic_network()
 
-        self.target_network_params = tf.trainable_variables()[(len(self.network_params) + num_actor_vars):]
+        self.target_network_params = tf.compat.v1.trainable_variables()[(len(self.network_params) + num_actor_vars):]
 
         # Op for periodically updating target network with online network
         # weights with regularization
         self.update_target_network_params = \
             [self.target_network_params[i].assign(tf.multiply(self.network_params[i], self.tau) \
-            + tf.multiply(self.target_network_params[i], 1. - self.tau))
-                for i in range(len(self.target_network_params))]
+                                                  + tf.multiply(self.target_network_params[i], 1. - self.tau))
+             for i in range(len(self.target_network_params))]
 
         # Network target (y_i)
-        self.predicted_q_value = tf.placeholder(tf.float32, [None, 1])
+        self.predicted_q_value = tf.compat.v1.placeholder(tf.float32, [None, 1])
 
         # Define loss and optimization Op
         self.loss = tflearn.mean_square(self.predicted_q_value, self.out)
-        self.optimize = tf.train.AdamOptimizer(
+        self.optimize = tf.compat.v1.train.AdamOptimizer(
             self.learning_rate).minimize(self.loss)
 
         # Get the gradient of the net w.r.t. the action.
@@ -165,14 +168,14 @@ class CriticNetwork(object):
     def create_critic_network(self):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
         action = tflearn.input_data(shape=[None, self.a_dim])
-        net = tflearn.fully_connected(inputs, 400)
-        net = tflearn.layers.normalization.batch_normalization(net)
+        net = tflearn.fully_connected(inputs, 64)
+        # net = tflearn.layers.normalization.batch_normalization(net)
         net = tflearn.activations.relu(net)
 
         # Add the action tensor in the 2nd hidden layer
         # Use two temp layers to get the corresponding weights and biases
-        t1 = tflearn.fully_connected(net, 300)
-        t2 = tflearn.fully_connected(action, 300)
+        t1 = tflearn.fully_connected(net, 64)
+        t2 = tflearn.fully_connected(action, 64)
 
         net = tflearn.activation(
             tf.matmul(net, t1.W) + tf.matmul(action, t2.W) + t2.b, activation='relu')
@@ -211,10 +214,13 @@ class CriticNetwork(object):
     def update_target_network(self):
         self.sess.run(self.update_target_network_params)
 
-# Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py, which is
-# based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
+
 class OrnsteinUhlenbeckActionNoise:
     def __init__(self, mu, sigma=0.3, theta=.15, dt=1e-2, x0=None):
+        """
+        Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py, which is
+        based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
+        """
         self.theta = theta
         self.mu = mu
         self.sigma = sigma
@@ -224,7 +230,7 @@ class OrnsteinUhlenbeckActionNoise:
 
     def __call__(self):
         x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + \
-                self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
+            self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
         self.x_prev = x
         return x
 
@@ -234,34 +240,37 @@ class OrnsteinUhlenbeckActionNoise:
     def __repr__(self):
         return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
 
+
 # ===========================
 #   Tensorflow Summary Ops
 # ===========================
 
+
 def build_summaries():
     episode_reward = tf.Variable(0.)
-    tf.summary.scalar("Reward", episode_reward)
+    tf.compat.v1.summary.scalar("Reward", episode_reward)
     episode_ave_max_q = tf.Variable(0.)
-    tf.summary.scalar("Qmax Value", episode_ave_max_q)
+    tf.compat.v1.summary.scalar("Qmax Value", episode_ave_max_q)
 
     summary_vars = [episode_reward, episode_ave_max_q]
-    summary_ops = tf.summary.merge_all()
+    summary_ops = tf.compat.v1.summary.merge_all()
 
     return summary_ops, summary_vars
+
 
 # ===========================
 #   Agent Training
 # ===========================
 
-def train(sess, env, args, actor, critic, actor_noise, reward_result):
 
+def train(sess, env, args, actor, critic, actor_noise, reward_result):
     # Set up summary Ops
     summary_ops, summary_vars = build_summaries()
 
-    sess.run(tf.global_variables_initializer())
-    writer = tf.summary.FileWriter(args['summary_dir'], sess.graph)
+    sess.run(tf.compat.v1.global_variables_initializer())
+    writer = tf.compat.v1.summary.FileWriter(args['summary_dir'], sess.graph)
 
-    restorer = tf.train.Saver(tf.global_variables())
+    restorer = tf.compat.v1.train.Saver(tf.compat.v1.global_variables())
 
     # Initialize target network weights
     actor.update_target_network()
@@ -276,7 +285,7 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
     # tflearn.is_training(True)
 
     paths = list()
-    
+
     for i in range(int(args['max_episodes'])):
 
         s = env.reset()
@@ -285,14 +294,10 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
         ep_ave_max_q = 0
 
         obs, action, rewards = [], [], []
-        
-        for j in range(int(args['max_episode_len'])):
-            
-            #env.render()
 
+        for j in range(int(args['max_episode_len'])):
 
             # Added exploration noise
-            #a = actor.predict(np.reshape(s, (1, 3))) + (1. / (1. + i))
             a = actor.predict(np.reshape(s, (1, actor.s_dim))) + actor_noise()
 
             s2, r, terminal, info = env.step(a[0])
@@ -300,8 +305,7 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
             replay_buffer.add(np.reshape(s, (actor.s_dim,)), np.reshape(a, (actor.a_dim,)), r,
                               terminal, np.reshape(s2, (actor.s_dim,)))
 
-            # Keep adding experience to the memory until
-            # there are at least minibatch size samples
+            # Keep adding experience to the memory until there are at least minibatch size samples
             if replay_buffer.size() > int(args['minibatch_size']):
                 s_batch, a_batch, r_batch, t_batch, s2_batch = \
                     replay_buffer.sample_batch(int(args['minibatch_size']))
@@ -340,7 +344,6 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
             action.append(a[0])
 
             if terminal:
-
                 summary_str = sess.run(summary_ops, feed_dict={
                     summary_vars[0]: ep_reward,
                     summary_vars[1]: ep_ave_max_q / float(j)
@@ -349,12 +352,12 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
                 writer.add_summary(summary_str, i)
                 writer.flush()
 
-                print('| Reward: {:d} | Episode: {:d} | Qmax: {:.4f}'.format(int(ep_reward), \
-                        i, (ep_ave_max_q / float(j))))
+                print('| Reward: {:d} | Episode: {:d} | Qmax: {:.4f}'.format(
+                    int(ep_reward), i, (ep_ave_max_q / float(j))))
                 reward_result[i] = ep_reward
-                path = {"Observation":np.concatenate(obs).reshape((200,3)),
-                        "Action":np.concatenate(action),
-		        "Reward":np.asarray(rewards)}
+                path = {"Observation": np.concatenate(obs).reshape((200, 3)),
+                        "Action": np.concatenate(action),
+                        "Reward": np.asarray(rewards)}
                 paths.append(path)
 
                 break
@@ -365,12 +368,10 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result):
 
 
 def main(args, reward_result):
-
     with tf.Session() as sess:
-
         env = gym.make(args['env'])
         np.random.seed(int(args['random_seed']))
-        tf.set_random_seed(int(args['random_seed']))
+        tf.compat.v1.set_random_seed(int(args['random_seed']))
         env.seed(int(args['random_seed']))
 
         state_dim = env.observation_space.shape[0]
@@ -387,7 +388,7 @@ def main(args, reward_result):
                                float(args['critic_lr']), float(args['tau']),
                                float(args['gamma']),
                                actor.get_num_trainable_vars())
-        
+
         actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_dim))
 
         [summary_ops, summary_vars, paths] = train(sess, env, args, actor, critic, actor_noise, reward_result)
@@ -411,13 +412,13 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', help='discount factor for critic updates', default=0.99)
     parser.add_argument('--tau', help='soft target update parameter', default=0.001)
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
-    parser.add_argument('--minibatch-size', help='size of minibatch for minibatch-SGD', default=64) 
+    parser.add_argument('--minibatch-size', help='size of minibatch for minibatch-SGD', default=64)
 
     # run parameters
     parser.add_argument('--env', help='choose the gym env- tested on {Pendulum-v0}', default='Pendulum-v0')
-    parser.add_argument('--random-seed', help='random seed for repeatability', default=1754) 
-    parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=600) 
-    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200) 
+    parser.add_argument('--random-seed', help='random seed for repeatability', default=1754)
+    parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=600)
+    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
     parser.add_argument('--render-env', help='render the gym env', action='store_false')
     parser.add_argument('--use-gym-monitor', help='record gym results', action='store_false')
     parser.add_argument('--monitor-dir', help='directory for storing gym results', default='./results2/gym_ddpg')
@@ -425,12 +426,13 @@ if __name__ == '__main__':
 
     parser.set_defaults(render_env=False)
     parser.set_defaults(use_gym_monitor=False)
-    
+
     args = vars(parser.parse_args())
-    
+
     pp.pprint(args)
 
-    reward_result = np.zeros(2500)
+    reward_result = np.zeros(int(args['max_episodes']))
     [summary_ops, summary_vars, paths] = main(args, reward_result)
 
-    savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',dict(data=paths, reward=reward_result))
+    # savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',
+    #         dict(data=paths, reward=reward_result))
