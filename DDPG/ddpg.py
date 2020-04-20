@@ -408,7 +408,8 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
 
                 break
 
-    restorer.save(sess, './final_model.chkp')
+    save_path = args['log_path'] + '/final_model.chkp'
+    restorer.save(sess, save_path)
 
     return [summary_ops, summary_vars, paths]
 
