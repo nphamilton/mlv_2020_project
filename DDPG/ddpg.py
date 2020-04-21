@@ -39,6 +39,7 @@ class ActorNetwork(object):
     The output layer activation is a tanh to keep the action
     between -action_bound and action_bound
     """
+
     def __init__(self, sess, state_dim, action_dim, action_bound, learning_rate, tau, batch_size):
         self.sess = sess
         self.s_dim = state_dim
@@ -72,7 +73,8 @@ class ActorNetwork(object):
         # Combine the gradients here
         self.unnormalized_actor_gradients = tf.gradients(
             self.scaled_out, self.network_params, -self.action_gradient)
-        self.actor_gradients = list(map(lambda x: tf.math.divide(x, self.batch_size), self.unnormalized_actor_gradients))
+        self.actor_gradients = list(
+            map(lambda x: tf.math.divide(x, self.batch_size), self.unnormalized_actor_gradients))
 
         # Optimization Op
         self.optimize = tf.compat.v1.train.AdamOptimizer(self.learning_rate). \
@@ -83,18 +85,19 @@ class ActorNetwork(object):
 
     def create_actor_network(self):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
-        net = tflearn.fully_connected(inputs, 64)
+        net = tflearn.fully_connected(inputs, 64, name='relu1', activation='relu')
         # net = tflearn.layers.normalization.batch_normalization(net)
-        net = tflearn.activations.relu(net)
-        net = tflearn.fully_connected(net, 64)
+        # net = tflearn.activations.relu(net)
+        net = tflearn.fully_connected(net, 64, name='relu2', activation='relu')
         # net = tflearn.layers.normalization.batch_normalization(net)
-        net = tflearn.activations.relu(net)
+        # net = tflearn.activations.relu(net)
         # Final layer weights are init to Uniform[-3e-3, 3e-3]
         w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
         out = tflearn.fully_connected(
-            net, self.a_dim, activation='tanh', weights_init=w_init)
+            net, self.a_dim, name='out_layer', activation='tanh', weights_init=w_init)
         # Scale output to -action_bound to action_bound
         scaled_out = tf.multiply(out, self.action_bound)
+        self.model = tflearn.DNN(out)
         return inputs, out, scaled_out
 
     def train(self, inputs, a_gradient):
@@ -126,6 +129,7 @@ class CriticNetwork(object):
     The action must be obtained from the output of the Actor network.
 
     """
+
     def __init__(self, sess, state_dim, action_dim, learning_rate, tau, gamma, num_actor_vars):
         self.sess = sess
         self.s_dim = state_dim
@@ -404,9 +408,21 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
 
                     # Log the evaluation run
                     with open(log_name, "a") as myfile:
-                        myfile.write(str(i+1) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
+                        myfile.write(str(i + 1) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
 
                 break
+
+    # Save the final model as a matlab file
+    relu1_vars = tflearn.variables.get_layer_variables_by_name('relu1')
+    relu2_vars = tflearn.variables.get_layer_variables_by_name('relu2')
+    out_vars = tflearn.variables.get_layer_variables_by_name('out_layer')
+
+    weights = [actor.model.get_weights(relu1_vars[0]), actor.model.get_weights(relu2_vars[0]),
+               actor.model.get_weights(out_vars[0])]
+    biases = [actor.model.get_weights(relu1_vars[1]), actor.model.get_weights(relu2_vars[1]),
+              actor.model.get_weights(out_vars[1])]
+
+    savemat(args['log_path'] + '/final_model.mat', mdict={'W': weights, 'b': biases})
 
     save_path = args['log_path'] + '/final_model.chkp'
     restorer.save(sess, save_path)
@@ -493,8 +509,6 @@ if __name__ == '__main__':
 
     reward_result = np.zeros(int(args['max_episodes']))
     [summary_ops, summary_vars, paths] = main(args, reward_result, args['log_path'])
-
-
 
     # savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',
     #         dict(data=paths, reward=reward_result))
