@@ -1,6 +1,15 @@
 """ 
 Implementation of DDPG-CBF on the Pendulum-v0 OpenAI gym task
 
+The algorithm is tested on the Pendulum-v0 OpenAI gym task and developed with tflearn + Tensorflow
+
+Original Author: Patrick Emami
+Code copied from https://github.com/rcheng805/RL-CBF
+
+The majority of this code is still the same, however, I have made some modifications to add a different form of logging.
+Additionally, the neural network architecture has been modified to a smaller network reported on in
+https://arxiv.org/abs/1709.06560 and the batch norm layers have been removed to simplify the verification process.
+The final learned model is also saved so it can be analyzed afterwards using NNV.
 """
 import os
 import tensorflow as tf
