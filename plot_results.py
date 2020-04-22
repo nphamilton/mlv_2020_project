@@ -9,14 +9,13 @@ import seaborn as sns
 import argparse
 
 
-def combine_results(file_path1, file_path2, file_path3):
+def combine_results(file_path1, file_path2, file_path3, file_name='/episode_performance.csv'):
     """
     Combine the results of 3 todo
     """
-    name = '/episode_performance.csv'
-    data1 = pd.read_csv(file_path1+name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
-    # data2 = pd.read_csv(file_path2+name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
-    # data3 = pd.read_csv(file_path3+name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
+    data1 = pd.read_csv(file_path1+file_name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
+    # data2 = pd.read_csv(file_path2+file_name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
+    # data3 = pd.read_csv(file_path3+file_name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
 
     return data1
 
@@ -37,6 +36,7 @@ def plot_2_together(data1, data1_name, data2, data2_name, title):
     fig.fig.suptitle(title)
 
     plt.legend(labels=[data1_name, data2_name])
+    fig.set(ylim=(-3000, 10))
     plt.show()
     return
 

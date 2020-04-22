@@ -86,11 +86,7 @@ class ActorNetwork(object):
     def create_actor_network(self):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
         net = tflearn.fully_connected(inputs, 64, name='relu1', activation='relu')
-        # net = tflearn.layers.normalization.batch_normalization(net)
-        # net = tflearn.activations.relu(net)
         net = tflearn.fully_connected(net, 64, name='relu2', activation='relu')
-        # net = tflearn.layers.normalization.batch_normalization(net)
-        # net = tflearn.activations.relu(net)
         # Final layer weights are init to Uniform[-3e-3, 3e-3]
         w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
         out = tflearn.fully_connected(
@@ -262,20 +258,27 @@ def build_summaries():
 
 
 # ===========================
-#   Agent Training
+#   Agent Evaluation
 # ===========================
 def evaluate(env, actor, episode_length):
     # Reset the environment
     s = env.reset()
+    # Ensure that starting position is in "safe" region
+    while not (-0.09 <= env.unwrapped.state[0] <= 0.09 and -0.01 <= env.unwrapped.state[1] <= 0.01):
+        s = env.reset()
 
     ep_reward = 0
 
     # Step through each step of the episode
     done = 0
+    safe = True
     steps = episode_length
     for i in range(episode_length):
         a = actor.predict(np.reshape(s, (1, actor.s_dim)))
         s2, r, terminal, info = env.step(a[0])
+
+        if abs(env.unwrapped.state[0]) > 0.261799:
+            safe = False
 
         s = s2
         ep_reward += r
@@ -286,7 +289,7 @@ def evaluate(env, actor, episode_length):
             break
 
     # Return the results
-    return steps, ep_reward, done
+    return steps, ep_reward, done, safe
 
 
 # ===========================
@@ -319,10 +322,11 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
     episode_length = int(args['max_episode_len'])
     max_episodes = int(args['max_episodes'])
     num_evals = int(args['num_evals'])
+    constrain = int(args['constrain'])
 
     # Evaluate initial performance
     for j in range(num_evals):
-        steps, reward, done = evaluate(env, actor, episode_length)
+        steps, reward, done, _ = evaluate(env, actor, episode_length)
 
         # Log the evaluation run
         with open(log_name, "a") as myfile:
@@ -331,6 +335,11 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
     for i in range(max_episodes):
 
         s = env.reset()
+
+        if constrain == 1:
+            # Ensure that starting position is in "safe" region
+            while not (-0.09 <= env.unwrapped.state[0] <= 0.09 and -0.01 <= env.unwrapped.state[1] <= 0.01):
+                s = env.reset()
 
         ep_reward = 0
         ep_ave_max_q = 0
@@ -404,7 +413,7 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
 
                 # Evaluate performance of trained model after the episode
                 for k in range(num_evals):
-                    steps, reward, done = evaluate(env, actor, episode_length)
+                    steps, reward, done, _ = evaluate(env, actor, episode_length)
 
                     # Log the evaluation run
                     with open(log_name, "a") as myfile:
@@ -467,11 +476,11 @@ def main(args, reward_result, log_path):
 
         # Evaluate the final model 100 times to get a better idea of the final model's performance
         f = open(args['log_path'] + '/final_eval.csv', "w+")
-        f.write("reward, steps, dones\n")
+        f.write("reward, steps, done, safe\n")
         episode_length = int(args['max_episode_len'])
         for k in range(100):
-            steps, reward, done = evaluate(env, actor, episode_length)
-            f.write(str(reward) + ', ' + str(steps) + ', ' + str(done) + '\n')
+            steps, reward, done, safe = evaluate(env, actor, episode_length)
+            f.write(str(reward) + ', ' + str(steps) + ', ' + str(done) + ', ' + str(safe) + '\n')
         f.close()
 
         return [summary_ops, summary_vars, paths]
@@ -491,9 +500,11 @@ if __name__ == '__main__':
     # run parameters
     parser.add_argument('--env', help='choose the gym env- tested on {Pendulum-v0}', default='Pendulum-v0')
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1754)
-    parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=600)
+    parser.add_argument('--constrain', help='setting that toggles whether or not to start every training episode ' +
+                                            'constrained, 1=constrained, 0=not', default=0)
+    parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=1000)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
-    parser.add_argument('--num-evals', help='number of evaluation runs after each episode', default=5)
+    parser.add_argument('--num-evals', help='number of evaluation runs after each episode', default=1)
     parser.add_argument('--render-env', help='render the gym env', action='store_false')
     parser.add_argument('--use-gym-monitor', help='record gym results', action='store_false')
     parser.add_argument('--monitor-dir', help='directory for storing gym results', default='./results2/gym_ddpg')

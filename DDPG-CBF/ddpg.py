@@ -263,10 +263,14 @@ def evaluate(env, actor, episode_length):
 
     # Step through each step of the episode
     done = 0
+    safe = True
     steps = episode_length
     for i in range(episode_length):
         a = actor.predict(np.reshape(s, (1, actor.s_dim)))
         s2, r, terminal, info = env.step(a[0])
+
+        if abs(env.unwrapped.state[0]) > 0.261799:
+            safe = False
 
         s = s2
         ep_reward += r
@@ -277,13 +281,56 @@ def evaluate(env, actor, episode_length):
             break
 
     # Return the results
-    return steps, ep_reward, done
+    return steps, ep_reward, done, safe
+
+
+def evaluate_with_cbf(env, actor, agent, episode_length):
+    # Reset the environment
+    s = env.reset()
+    # Ensure that starting position is in "safe" region
+    while not (-0.09 <= env.unwrapped.state[0] <= 0.09 and -0.01 <= env.unwrapped.state[1] <= 0.01):
+        s = env.reset()
+
+    ep_reward = 0
+
+    # Step through each step of the episode
+    done = 0
+    safe = True
+    steps = episode_length
+    for i in range(episode_length):
+        a = actor.predict(np.reshape(s, (1, actor.s_dim)))
+
+        action_rl = a[0]
+
+        u_BAR_ = agent.bar_comp.get_action(s)[0]
+
+        action_RL = action_rl + u_BAR_
+
+        [f, g, x, std] = dynamics_gp.get_GP_dynamics(agent, s, action_RL)
+        u_bar_ = cbf.control_barrier(agent, np.squeeze(s), action_RL, f, g, x, std)
+        action_ = action_RL + u_bar_
+
+        s2, r, terminal, info = env.step(action_)
+
+        if abs(env.unwrapped.state[0]) > 0.261799:
+            safe = False
+
+        s = s2
+        ep_reward += r
+
+        if terminal:
+            done = 1
+            steps = i + 1
+            break
+
+    # Return the results
+    return steps, ep_reward, done, safe
 
 
 # ===========================
 #   Agent Training
 # ===========================
-def train(sess, env, args, actor, critic, actor_noise, reward_result, agent, log_name):
+def train(sess, env, args, actor, critic, actor_noise, reward_result, agent, log_name, log_cbf_name):
     # Set up summary Ops
     summary_ops, summary_vars = build_summaries()
 
@@ -310,10 +357,14 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent, log
 
     # Evaluate initial performance
     for j in range(num_evals):
-        steps, reward, done = evaluate(env, actor, episode_length)
-
-        # Log the evaluation run
+        # Without the CBF
+        steps, reward, done, _ = evaluate(env, actor, episode_length)
         with open(log_name, "a") as myfile:
+            myfile.write(str(0) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
+
+        # With the CBF
+        steps, reward, done, _ = evaluate_with_cbf(env, actor, agent, episode_length)
+        with open(log_cbf_name, "a") as myfile:
             myfile.write(str(0) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
 
     for i in range(max_episodes):
@@ -439,11 +490,15 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent, log
 
         # Evaluate performance of trained model after the episode
         for k in range(num_evals):
-            steps, reward, done = evaluate(env, actor, episode_length)
-
-            # Log the evaluation run
+            # Without the CBF
+            steps, reward, done, _ = evaluate(env, actor, episode_length)
             with open(log_name, "a") as myfile:
                 myfile.write(str(i*5 + 5) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
+
+            # With the CBF
+            steps, reward, done, _ = evaluate_with_cbf(env, actor, agent, episode_length)
+            with open(log_cbf_name, "a") as myfile:
+                myfile.write(str(i * 5 + 5) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
 
     # Save the final model as a matlab file
     relu1_vars = tflearn.variables.get_layer_variables_by_name('relu1')
@@ -472,6 +527,10 @@ def main(args, reward_result, log_path):
             os.mkdir(log_path)
         log_save_name = log_path + '/episode_performance.csv'
         f = open(log_save_name, "w+")
+        f.write("episode number, steps in evaluation, accumulated reward, done \n")
+        f.close()
+        log_save_name_cbf = log_path + '/episode_cbf_performance.csv'
+        f = open(log_save_name_cbf, "w+")
         f.write("episode number, steps in evaluation, accumulated reward, done \n")
         f.close()
 
@@ -506,7 +565,25 @@ def main(args, reward_result, log_path):
         agent.bar_comp = BARRIER(sess, 3, 1)
 
         [summary_ops, summary_vars, paths] = train(sess, env, args, actor, critic, actor_noise, reward_result, agent,
-                                                   log_save_name)
+                                                   log_save_name, log_save_name_cbf)
+
+        # Evaluate the final model 100 times to get a better idea of the final model's performance
+        f = open(args['log_path'] + '/final_eval.csv', "w+")
+        f.write("reward, steps, done, safe\n")
+        episode_length = int(args['max_episode_len'])
+        for k in range(100):
+            steps, reward, done, safe = evaluate(env, actor, episode_length)
+            f.write(str(reward) + ', ' + str(steps) + ', ' + str(done) + ', ' + str(safe) + '\n')
+        f.close()
+
+        # Evaluate the final model 100 times to get a better idea of the final model's performance
+        f = open(args['log_path'] + '/final_cbf_eval.csv', "w+")
+        f.write("reward, steps, done, safe\n")
+        episode_length = int(args['max_episode_len'])
+        for k in range(100):
+            steps, reward, done, safe = evaluate_with_cbf(env, actor, agent, episode_length)
+            f.write(str(reward) + ', ' + str(steps) + ', ' + str(done) + ', ' + str(safe) + '\n')
+        f.close()
 
         return [summary_ops, summary_vars, paths]
 
@@ -528,7 +605,7 @@ if __name__ == '__main__':
     parser.add_argument('--max-episodes', help='max num of episodes to do while training divided by 5 because each ' +
                                                'episode is trained on 5 times', default=200)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
-    parser.add_argument('--num-evals', help='number of evaluation runs after each episode', default=5)
+    parser.add_argument('--num-evals', help='number of evaluation runs after each episode', default=1)
     parser.add_argument('--render-env', help='render the gym env', action='store_false')
     parser.add_argument('--use-gym-monitor', help='record gym results', action='store_false')
     parser.add_argument('--monitor-dir', help='directory for storing gym results', default='./results2/gym_ddpg')
