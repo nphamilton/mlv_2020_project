@@ -424,8 +424,8 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
 
     savemat(args['log_path'] + '/final_model.mat', mdict={'W': weights, 'b': biases})
 
-    save_path = args['log_path'] + '/final_model.chkp'
-    restorer.save(sess, save_path)
+    # save_path = args['log_path'] + '/final_model.chkp'
+    # restorer.save(sess, save_path)
 
     return [summary_ops, summary_vars, paths]
 

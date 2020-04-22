@@ -21,15 +21,22 @@ def combine_results(file_path1, file_path2, file_path3):
     return data1
 
 
-def plot_2_together(data1, data1_name, data2, data2_name):
+def plot_2_together(data1, data1_name, data2, data2_name, title):
     """
 
     """
     data1['algorithm'] = data1_name
+    data2['algorithm'] = data2_name
+    # print(data2)
 
-    fig = sns.relplot(x="episode", y="reward", kind="line", hue='algorithm', data=data1)
-    fig.fig.suptitle('title')
+    data_merge = pd.concat([data1, data2])
+    # print(data_merge)
 
+    fig = sns.relplot(x="episode", y="reward", kind="line", hue='algorithm', hue_order=[data1_name, data2_name],
+                      data=data_merge)
+    fig.fig.suptitle(title)
+
+    plt.legend(labels=[data1_name, data2_name])
     plt.show()
     return
 
@@ -45,7 +52,7 @@ if __name__ == '__main__':
     args = vars(parser.parse_args())
 
     ddpg_data = combine_results('./DDPG/'+args['folder1'], './DDPG/'+args['folder2'], './DDPG/'+args['folder3'])
-    cbf_data = combine_results('./DDPG-CBF/'+args['folder1'], './DDPG-CBF/'+args['folder2'],
-                               './DDPG-CBF/'+args['folder3'])
+    # cbf_data = combine_results('./DDPG-CBF/'+args['folder1'], './DDPG-CBF/'+args['folder2'],
+    #                            './DDPG-CBF/'+args['folder3'])
 
-    plot_2_together(ddpg_data, 'DDPG', cbf_data, 'DDPG-CBF')
+    plot_2_together(ddpg_data, 'DDPG', ddpg_data, 'DDPG-CBF', 'Pendulum-v0')
