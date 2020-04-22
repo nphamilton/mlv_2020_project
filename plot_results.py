@@ -52,7 +52,7 @@ if __name__ == '__main__':
     args = vars(parser.parse_args())
 
     ddpg_data = combine_results('./DDPG/'+args['folder1'], './DDPG/'+args['folder2'], './DDPG/'+args['folder3'])
-    # cbf_data = combine_results('./DDPG-CBF/'+args['folder1'], './DDPG-CBF/'+args['folder2'],
-    #                            './DDPG-CBF/'+args['folder3'])
+    cbf_data = combine_results('./DDPG-CBF/'+args['folder1'], './DDPG-CBF/'+args['folder2'],
+                               './DDPG-CBF/'+args['folder3'])
 
-    plot_2_together(ddpg_data, 'DDPG', ddpg_data, 'DDPG-CBF', 'Pendulum-v0')
+    plot_2_together(ddpg_data, 'DDPG', cbf_data, 'DDPG-CBF', 'Pendulum-v0')

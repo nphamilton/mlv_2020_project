@@ -2,6 +2,7 @@
 Implementation of DDPG-CBF on the Pendulum-v0 OpenAI gym task
 
 """
+import os
 import tensorflow as tf
 import numpy as np
 import gym
@@ -10,7 +11,6 @@ import tflearn
 import argparse
 import pprint as pp
 from scipy.io import savemat
-import random
 
 from replay_buffer import ReplayBuffer
 
@@ -79,18 +79,15 @@ class ActorNetwork(object):
 
     def create_actor_network(self):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
-        net = tflearn.fully_connected(inputs, 400)
-        net = tflearn.layers.normalization.batch_normalization(net)
-        net = tflearn.activations.relu(net)
-        net = tflearn.fully_connected(net, 300)
-        net = tflearn.layers.normalization.batch_normalization(net)
-        net = tflearn.activations.relu(net)
+        net = tflearn.fully_connected(inputs, 64, name='relu1', activation='relu')
+        net = tflearn.fully_connected(net, 64, name='relu2', activation='relu')
         # Final layer weights are init to Uniform[-3e-3, 3e-3]
         w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
         out = tflearn.fully_connected(
-            net, self.a_dim, activation='tanh', weights_init=w_init)
+            net, self.a_dim, name='out_layer', activation='tanh', weights_init=w_init)
         # Scale output to -action_bound to action_bound
         scaled_out = tf.multiply(out, self.action_bound)
+        self.model = tflearn.DNN(out)
         return inputs, out, scaled_out
 
     def train(self, inputs, a_gradient):
@@ -166,14 +163,14 @@ class CriticNetwork(object):
     def create_critic_network(self):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
         action = tflearn.input_data(shape=[None, self.a_dim])
-        net = tflearn.fully_connected(inputs, 400)
-        net = tflearn.layers.normalization.batch_normalization(net)
+        net = tflearn.fully_connected(inputs, 64)
+        # net = tflearn.layers.normalization.batch_normalization(net)
         net = tflearn.activations.relu(net)
 
         # Add the action tensor in the 2nd hidden layer
         # Use two temp layers to get the corresponding weights and biases
-        t1 = tflearn.fully_connected(net, 300)
-        t2 = tflearn.fully_connected(action, 300)
+        t1 = tflearn.fully_connected(net, 64)
+        t2 = tflearn.fully_connected(action, 64)
 
         net = tflearn.activation(
             tf.matmul(net, t1.W) + tf.matmul(action, t2.W) + t2.b, activation='relu')
@@ -240,7 +237,6 @@ class OrnsteinUhlenbeckActionNoise:
 # ===========================
 #   Tensorflow Summary Ops
 # ===========================
-
 def build_summaries():
     episode_reward = tf.Variable(0.)
     tf.summary.scalar("Reward", episode_reward)
@@ -254,10 +250,40 @@ def build_summaries():
 
 
 # ===========================
+#   Agent Evaluation
+# ===========================
+def evaluate(env, actor, episode_length):
+    # Reset the environment
+    s = env.reset()
+    # Ensure that starting position is in "safe" region
+    while not (-0.09 <= env.unwrapped.state[0] <= 0.09 and -0.01 <= env.unwrapped.state[1] <= 0.01):
+        s = env.reset()
+
+    ep_reward = 0
+
+    # Step through each step of the episode
+    done = 0
+    steps = episode_length
+    for i in range(episode_length):
+        a = actor.predict(np.reshape(s, (1, actor.s_dim)))
+        s2, r, terminal, info = env.step(a[0])
+
+        s = s2
+        ep_reward += r
+
+        if terminal:
+            done = 1
+            steps = i + 1
+            break
+
+    # Return the results
+    return steps, ep_reward, done
+
+
+# ===========================
 #   Agent Training
 # ===========================
-
-def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
+def train(sess, env, args, actor, critic, actor_noise, reward_result, agent, log_name):
     # Set up summary Ops
     summary_ops, summary_vars = build_summaries()
 
@@ -277,13 +303,26 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
 
     paths = list()
 
-    for i in range(int(args['max_episodes'])):
+    # Extract the arguments that will be used repeatedly
+    episode_length = int(args['max_episode_len'])
+    max_episodes = int(args['max_episodes'])
+    num_evals = int(args['num_evals'])
+
+    # Evaluate initial performance
+    for j in range(num_evals):
+        steps, reward, done = evaluate(env, actor, episode_length)
+
+        # Log the evaluation run
+        with open(log_name, "a") as myfile:
+            myfile.write(str(0) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
+
+    for i in range(max_episodes):
 
         # Utilize GP from previous iteration while training current iteration
-        if (agent.firstIter == 1):
+        if agent.firstIter == 1:
             pass
         else:
-            agent.GP_model_prev = agent.GP_model.copy()
+            agent.GP_model_prev = list(agent.GP_model)
             dynamics_gp.build_GP_model(agent)
 
         for el in range(5):
@@ -292,13 +331,13 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
 
             s = env.reset()
             # Ensure that starting position is in "safe" region
-            while (env.unwrapped.state[0] > 0.8 or env.unwrapped.state[0] < -0.8):
+            while not (-0.09 <= env.unwrapped.state[0] <= 0.09 and -0.01 <= env.unwrapped.state[1] <= 0.01):
                 s = env.reset()
 
             ep_reward = 0
             ep_ave_max_q = 0
 
-            for j in range(int(args['max_episode_len'])):
+            for j in range(episode_length):
 
                 # env.render()
 
@@ -386,6 +425,7 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
                             "Action_BAR": np.concatenate(action_BAR),
                             "Reward": np.asarray(rewards)}
                     paths.append(path)
+
                     break
             if el <= 3:
                 dynamics_gp.update_GP_dynamics(agent, path)
@@ -397,15 +437,43 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, agent):
             barr_loss = 0.
         agent.firstIter = 0
 
+        # Evaluate performance of trained model after the episode
+        for k in range(num_evals):
+            steps, reward, done = evaluate(env, actor, episode_length)
+
+            # Log the evaluation run
+            with open(log_name, "a") as myfile:
+                myfile.write(str(i*5 + 5) + ', ' + str(steps) + ', ' + str(reward) + ', ' + str(done) + '\n')
+
+    # Save the final model as a matlab file
+    relu1_vars = tflearn.variables.get_layer_variables_by_name('relu1')
+    relu2_vars = tflearn.variables.get_layer_variables_by_name('relu2')
+    out_vars = tflearn.variables.get_layer_variables_by_name('out_layer')
+
+    weights = [actor.model.get_weights(relu1_vars[0]), actor.model.get_weights(relu2_vars[0]),
+               actor.model.get_weights(out_vars[0])]
+    biases = [actor.model.get_weights(relu1_vars[1]), actor.model.get_weights(relu2_vars[1]),
+              actor.model.get_weights(out_vars[1])]
+
+    savemat(args['log_path'] + '/final_model.mat', mdict={'W': weights, 'b': biases})
+
     return [summary_ops, summary_vars, paths]
 
 
-def main(args, reward_result):
+def main(args, reward_result, log_path):
     with tf.Session() as sess:
         env = gym.make(args['env'])
         np.random.seed(int(args['random_seed']))
         tf.set_random_seed(int(args['random_seed']))
         env.seed(int(args['random_seed']))
+
+        # Create the log files
+        if not os.path.isdir(log_path):
+            os.mkdir(log_path)
+        log_save_name = log_path + '/episode_performance.csv'
+        f = open(log_save_name, "w+")
+        f.write("episode number, steps in evaluation, accumulated reward, done \n")
+        f.close()
 
         # Set environment parameters for pendulum
         env.unwrapped.max_torque = 15.
@@ -437,7 +505,8 @@ def main(args, reward_result):
         dynamics_gp.build_GP_model(agent)
         agent.bar_comp = BARRIER(sess, 3, 1)
 
-        [summary_ops, summary_vars, paths] = train(sess, env, args, actor, critic, actor_noise, reward_result, agent)
+        [summary_ops, summary_vars, paths] = train(sess, env, args, actor, critic, actor_noise, reward_result, agent,
+                                                   log_save_name)
 
         return [summary_ops, summary_vars, paths]
 
@@ -456,12 +525,15 @@ if __name__ == '__main__':
     # run parameters
     parser.add_argument('--env', help='choose the gym env- tested on {Pendulum-v0}', default='Pendulum-v0')
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
-    parser.add_argument('--max-episodes', help='max num of episodes to do while training', default=150)
+    parser.add_argument('--max-episodes', help='max num of episodes to do while training divided by 5 because each ' +
+                                               'episode is trained on 5 times', default=200)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
+    parser.add_argument('--num-evals', help='number of evaluation runs after each episode', default=5)
     parser.add_argument('--render-env', help='render the gym env', action='store_false')
     parser.add_argument('--use-gym-monitor', help='record gym results', action='store_false')
     parser.add_argument('--monitor-dir', help='directory for storing gym results', default='./results2/gym_ddpg')
     parser.add_argument('--summary-dir', help='directory for storing tensorboard info', default='./results2/tf_ddpg')
+    parser.add_argument('--log-path', help='path to directory where a log will be recorded', default='.')
 
     parser.set_defaults(render_env=False)
     parser.set_defaults(use_gym_monitor=False)
@@ -471,7 +543,7 @@ if __name__ == '__main__':
     pp.pprint(args)
 
     reward_result = np.zeros(int(args['max_episodes']))
-    [summary_ops, summary_vars, paths] = main(args, reward_result)
+    [summary_ops, summary_vars, paths] = main(args, reward_result, args['log_path'])
 
-    savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',
-            dict(data=paths, reward=reward_result))
+    # savemat('data4_' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M") + '.mat',
+    #         dict(data=paths, reward=reward_result))
