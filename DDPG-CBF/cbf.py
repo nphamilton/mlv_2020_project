@@ -18,10 +18,10 @@ def build_barrier(self):
     # self.P = matrix(np.eye(N), tc='d')
     self.P = matrix(np.diag([1., 1e24]), tc='d')
     self.q = matrix(np.zeros(N + 1))
-    self.H1 = np.array([1, 0.05])
-    self.H2 = np.array([1, -0.05])
-    self.H3 = np.array([-1, 0.05])
-    self.H4 = np.array([-1, -0.05])
+    self.H1 = np.array([0.261799, 0.05])  # np.array([1, 0.05])
+    self.H2 = np.array([0.261799, -0.05])  # np.array([1, -0.05])
+    self.H3 = np.array([-0.261799, 0.05])  # np.array([-1, 0.05])
+    self.H4 = np.array([-0.261799, -0.05])  # np.array([-1, -0.05])
     self.F = 1
 
 
