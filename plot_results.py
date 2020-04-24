@@ -38,7 +38,7 @@ def plot_2_together(data1, data1_name, data2, data2_name, title):
     fig.fig.suptitle(title)
 
     plt.legend(labels=[data1_name, data2_name])
-    fig.set(ylim=(-3000, 10))
+    fig.set(xlim=(0, 1000), ylim=(-2000, 100))
     # plt.show()
     return
 
@@ -60,7 +60,7 @@ def plot_all(ddpg, ddpg_c, cbf, cbf_w):
     fig.fig.suptitle('Pendulum-v0')
 
     plt.legend(labels=['DDPG', 'DDPG-C', 'DDPG-CBF-N', 'DDPG-CBF'])
-    fig.set(ylim=(-2000, 10))
+    fig.set(xlim=(0, 1000), ylim=(-2000, 100))
     # plt.show()
     return
 
@@ -84,11 +84,11 @@ if __name__ == '__main__':
                                  './DDPG-CBF/' + args['folder3'], file_name='/episode_cbf_performance.csv')
 
     plot_2_together(ddpg_data, 'DDPG', ddpg_c_data, 'DDPG-C', 'DDPG vs DDPG-C')
-    plot_2_together(ddpg_data, 'DDPG', cbf_data, 'DDPG-CBF-N', 'DDPG vs DDPG-CBF-N')
-    plot_2_together(ddpg_data, 'DDPG', cbf_w_data, 'DDPG-CBF', 'DDPG vs DDPG-CBF')
-    plot_2_together(ddpg_c_data, 'DDPG-C', cbf_data, 'DDPG-CBF-N', 'DDPG-C vs DDPG-CBF-N')
-    plot_2_together(ddpg_c_data, 'DDPG-C', cbf_w_data, 'DDPG-CBF', 'DDPG-C vs DDPG-CBF')
-    plot_2_together(cbf_data, 'DDPG-CBF-N', cbf_w_data, 'DDPG-CBF', 'DDPG-CBF-N vs DDPG-CBF')
+    plot_2_together(ddpg_data, 'DDPG', cbf_data, 'CBF-N', 'DDPG vs CBF-N')
+    plot_2_together(ddpg_data, 'DDPG', cbf_w_data, 'CBF', 'DDPG vs CBF')
+    plot_2_together(ddpg_c_data, 'DDPG-C', cbf_data, 'CBF-N', 'DDPG-C vs CBF-N')
+    plot_2_together(ddpg_c_data, 'DDPG-C', cbf_w_data, 'CBF', 'DDPG-C vs CBF')
+    plot_2_together(cbf_data, 'CBF-N', cbf_w_data, 'CBF', 'CBF-N vs CBF')
 
     plot_all(ddpg_data, ddpg_c_data, cbf_data, cbf_w_data)
 

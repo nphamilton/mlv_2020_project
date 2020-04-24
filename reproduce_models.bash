@@ -16,4 +16,4 @@ python ddpg.py --random-seed 1754 --log-path './rs_1754'
 
 cd ..
 python plot_results.py
-python generate_table.py
+python generate_tables.py
