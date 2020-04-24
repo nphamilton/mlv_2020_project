@@ -400,8 +400,8 @@ def train(sess, env, args, actor, critic, actor_noise, reward_result, log_name):
                     summary_vars[1]: ep_ave_max_q / float(j)
                 })
 
-                writer.add_summary(summary_str, i)
-                writer.flush()
+                # writer.add_summary(summary_str, i)
+                # writer.flush()
 
                 print('| Reward: {:d} | Episode: {:d} | Qmax: {:.4f}'.format(
                     int(ep_reward), i, (ep_ave_max_q / float(j))))
