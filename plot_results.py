@@ -37,8 +37,8 @@ def plot_2_together(data1, data1_name, data2, data2_name, title):
                       data=data_merge)
     fig.fig.suptitle(title)
 
-    plt.legend(labels=[data1_name, data2_name])
-    fig.set(xlim=(0, 1000), ylim=(-2000, 100))
+    # plt.legend(labels=[data1_name, data2_name])
+    fig.set(xlim=(0, 1000), ylim=(-1250, 100))
     # plt.show()
     return
 
@@ -49,18 +49,19 @@ def plot_all(ddpg, ddpg_c, cbf, cbf_w):
     """
     ddpg['algorithm'] = 'DDPG'
     ddpg_c['algorithm'] = 'DDPG-C'
-    cbf['algorithm'] = 'DDPG-CBF-N'
-    cbf_w['algorithm'] = 'DDPG-CBF'
+    cbf['algorithm'] = 'CBF-N'
+    cbf_w['algorithm'] = 'CBF'
 
     data_merge = pd.concat([ddpg, ddpg_c, cbf, cbf_w])
     # print(data_merge)
 
+    order = ['CBF', 'CBF-N', 'DDPG-C', 'DDPG']  # ['DDPG', 'DDPG-C', 'CBF-N', 'CBF']
     fig = sns.relplot(x="episode", y="reward", kind="line", hue='algorithm',
-                      hue_order=['DDPG', 'DDPG-C', 'DDPG-CBF-N', 'DDPG-CBF'], data=data_merge)
+                      hue_order=order, data=data_merge)
     fig.fig.suptitle('Pendulum-v0')
 
-    plt.legend(labels=['DDPG', 'DDPG-C', 'DDPG-CBF-N', 'DDPG-CBF'])
-    fig.set(xlim=(0, 1000), ylim=(-2000, 100))
+    # plt.legend(labels=order)
+    fig.set(xlim=(0, 1000), ylim=(-1250, 100))
     # plt.show()
     return
 
