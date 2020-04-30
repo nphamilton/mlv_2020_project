@@ -14,7 +14,8 @@ sin_theta = x(2);
 theta_dot = x(3);
 
 %% Compute the next state
-theta = atan(sin_theta / cos_theta);
+% theta = atan(sin_theta / cos_theta);
+theta = asin(sin_theta);
 
 newthdot = theta_dot + (A * sin(theta + pi) + B*u) * dt;
 % newthdot = min(max(newthdot, -max_speed), max_speed);
