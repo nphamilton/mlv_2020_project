@@ -7,15 +7,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import argparse
+from scipy.ndimage.filters import uniform_filter1d
 
 
-def combine_results(file_path1, file_path2, file_path3, file_name='/episode_performance.csv'):
+def combine_results(file_path1, file_path2, file_path3, file_name='/episode_performance.csv', window=5):
     """
     Combine the results of 3 todo
     """
-    data1 = pd.read_csv(file_path1+file_name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
-    data2 = pd.read_csv(file_path2+file_name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
-    data3 = pd.read_csv(file_path3+file_name, header=0, names=['episode', 'eval_steps', 'reward', 'done'])
+    data1 = pd.read_csv(file_path1+file_name, header=0, names=['episode', 'eval_steps', 'raw reward', 'done'])
+    data1['reward'] = uniform_filter1d(data1['raw reward'].to_numpy(), window)
+    data2 = pd.read_csv(file_path2+file_name, header=0, names=['episode', 'eval_steps', 'raw reward', 'done'])
+    data2['reward'] = uniform_filter1d(data2['raw reward'].to_numpy(), window)
+    data3 = pd.read_csv(file_path3+file_name, header=0, names=['episode', 'eval_steps', 'raw reward', 'done'])
+    data3['reward'] = uniform_filter1d(data3['raw reward'].to_numpy(), window)
 
     data_merge = pd.concat([data1, data2, data3])
 
